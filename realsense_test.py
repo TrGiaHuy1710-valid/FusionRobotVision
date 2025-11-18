@@ -22,10 +22,6 @@ if not os.path.exists(bag_file):
 
 rs.config.enable_device_from_file(config, bag_file)
 
-# --- THAY ĐỔI LỚN Ở ĐÂY ---
-# Chúng ta không ép 640x480 hay BGR8 nữa.
-# Chúng ta chỉ yêu cầu "luồng màu" (color stream)
-# pyrealsense2 sẽ tự động tìm luồng màu có trong file .bag
 try:
     config.enable_stream(rs.stream.color)
     print("Đã yêu cầu tự động kích hoạt luồng màu (color stream).")

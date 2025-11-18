@@ -1,90 +1,71 @@
 import pyrealsense2 as rs
 import numpy as np
 import cv2
-from ultralytics import YOLO
 import os
 
-# ================================
-# 1. LOAD YOLO MODEL
-# ================================
-model = YOLO('yolov8n.pt')
-print("Đã tải xong model YOLOv8.")
+BAG_FILE = '20251112_135756.bag'
 
-# --- Chỉ phát hiện class 'cup' ---
-TARGET_CLASS = 'cup'
-cup_class_id = None
 
-for cls_id, name in model.names.items():
-    if name == TARGET_CLASS:
-        cup_class_id = cls_id
-        break
-
-if cup_class_id is None:
-    print(f"❌ Không tìm thấy class '{TARGET_CLASS}' trong YOLO model!")
+if not os.path.exists(BAG_FILE):
+    print(f"Lỗi: Không tìm thấy file {BAG_FILE}")
     exit()
-else:
-    print(f"✔ Chỉ detect class: '{TARGET_CLASS}' (ID={cup_class_id})")
 
-
-# ================================
-# 2. CONFIG PIPELINE - RGB ONLY
-# ================================
-pipeline = rs.pipeline()
+pipe = rs.pipeline()
 config = rs.config()
 
-bag_file = "20251112_135756.bag"
-
-if not os.path.exists(bag_file):
-    print(f"❌ Không tìm thấy file: {bag_file}")
+try:
+    config.enable_device_from_file(BAG_FILE)
+    print(f"Đang đọc từ file: {BAG_FILE}")
+except Exception as e:
+    print(f"Lỗi khi tải file .bag: {e}")
+    exit()
+try:
+    profile = pipe.start(config)
+except RuntimeError as e:
+    print(f"Không thể bắt đầu pipeline. File .bag có thể bị hỏng hoặc chứa định dạng không hỗ trợ.")
+    print(f"Lỗi chi tiết: {e}")
     exit()
 
-# Cho phép pipeline đọc file .bag
-rs.config.enable_device_from_file(config, bag_file)
+playback = profile.get_device().as_playback()
+playback.set_real_time(False)
+colorizer = rs.colorizer()
 
-# KHÔNG enable stream depth
-# Chỉ enable color stream
-config.enable_stream(rs.stream.color)
-
-# ================================
-# 3. START PIPELINE
-# ================================
-profile = pipeline.start(config)
-
-print("✔ Pipeline STARTED (RGB only). Nhấn 'q' để thoát.")
+# Chúng ta muốn căn chỉnh (align) mọi thứ VÀO luồng màu (color stream)
+align_to = rs.stream.color
+align = rs.align(align_to)
+# ----------------------------------------
 
 try:
     while True:
-        # Lấy frame
-        frames = pipeline.wait_for_frames()
-        if not frames:
-            print("❌ Hết frame.")
-            break
+        frames = pipe.wait_for_frames()
+        # align.process() sẽ trả về một bộ frame đã được căn chỉnh
+        aligned_frames = align.process(frames)
 
-        # Lấy COLOR frame
-        color_frame = frames.get_color_frame()
-        if not color_frame:
+        # Lấy frame từ BỘ ĐÃ CĂN CHỈNH
+        color_frame = aligned_frames.get_color_frame()
+        depth_frame = aligned_frames.get_depth_frame()  # Đây là frame độ sâu đã được căn chỉnh
+
+        if not depth_frame or not color_frame:
             continue
-
-        # Chuyển sang numpy
+        # Chuyển đổi frame sang dạng mảng numpy
         color_image = np.asanyarray(color_frame.get_data())
-        color_image = cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR)
+        colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
 
-        # ================================
-        # 4. CHẠY YOLO (ONLY CUP)
-        # ================================
-        results = model.predict(
-            color_image,
-            classes=[cup_class_id],
-            verbose=False
-        )
+        images = np.hstack((color_image, colorized_depth))
 
-        annotated_image = results[0].plot()
-        cv2.imshow("YOLOv8 - RGB Only - Detect CUP", annotated_image)
+        # Hiển thị
+        cv2.namedWindow('RealSense RBGD', cv2.WINDOW_AUTOSIZE)
+        cv2.imshow('RealSense RBGD', images)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = cv2.waitKey(1)
+        # Nhấn 'q' hoặc ESC để thoát
+        if key == ord('q') or key == 27:
+            cv2.destroyAllWindows()
             break
 
+except RuntimeError:
+    print("Đã phát hết file .bag.")
 finally:
-    pipeline.stop()
+    pipe.stop()
     cv2.destroyAllWindows()
-    print("✔ Đã dừng pipeline.")
+    print("Đã dừng pipeline.")

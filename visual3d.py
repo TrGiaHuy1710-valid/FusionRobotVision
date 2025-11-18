@@ -11,11 +11,9 @@ from RGBDFusion import RGBDFusion
 YOLO_MODEL = 'yolov8n.pt'
 FASTSAM_MODEL = 'fastsam-s.pt'
 BAG_FILE = "20251112_135756.bag"
-DETECT_CLASSES = ["cup"]
+DETECT_CLASSES = ["cup", "laptop"]
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Đang sử dụng thiết bị: {DEVICE}")
-
-# --- 2. Khởi tạo các đối tượng ---
 try:
     realsense_yolo = RealsenseYOLO(
         model_path=YOLO_MODEL,
@@ -33,8 +31,6 @@ try:
 except RuntimeError as e:
     print(f"Lỗi khởi tạo: {e}")
     exit()
-
-# --- 3. Khởi tạo Trình hiển thị 3D (Open3D) ---
 vis = o3d.visualization.Visualizer()
 vis.create_window("Fusion Vision 3D Display", width=1280, height=720)
 master_pcd = o3d.geometry.PointCloud()
@@ -49,7 +45,6 @@ print("Đang bắt đầu vòng lặp chính... Nhấn 'q' trên cửa sổ 2D �
 
 try:
     while True:
-        # --- 4. Bước 1 (YOLO): Lấy frame và phát hiện ---
         try:
             color_bgr, depth, dets, yolo_results = \
                 realsense_yolo.get_rgbd_and_detections()
@@ -61,16 +56,12 @@ try:
             continue
 
         all_frame_pcds = []
-
-        # --- 5. Bước 2 (FastSAM): Lấy Mask từ BBox ---
         for det in dets:
             bbox = det["bbox"]
 
-            # Hàm này đã tự động gộp mask VÀ resize mask
             mask = rgbd_fusion.get_mask_from_bbox(color_bgr, bbox)
 
             if mask is not None:
-                # --- 6. Bước 3 (Apply on Depth Map): Tạo Point Cloud ---
                 pc = rgbd_fusion.mask_to_pointcloud(
                     mask=mask,
                     depth=depth,
@@ -91,8 +82,7 @@ try:
             for i in range(1, len(all_frame_pcds)):
                 final_pcd_raw += all_frame_pcds[i]
 
-            # *** THAY ĐỔI CHÍNH Ở ĐÂY ***
-            # Gọi hàm post-process từ class RGBDFusion
+
             final_pcd_processed = rgbd_fusion.post_process_pointcloud(
                 final_pcd_raw,
                 voxel_size=0.005,  # 5mm

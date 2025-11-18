@@ -62,3 +62,9 @@ class RealsenseYOLO:
             })
 
         return color_bgr, depth, dets, results[0]
+
+if __name__ == '__main__':
+    model_path = "yolov8n.pt"
+    bag_path = "20251112_135756.bag"
+    detect_classes = ['cup', 'laptop']
+    realsense = RealsenseYOLO(model_path=model_path, bag_path=bag_path, detect_classes=detect_classes)

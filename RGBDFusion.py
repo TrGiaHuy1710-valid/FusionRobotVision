@@ -127,7 +127,98 @@ class RGBDFusion:
 
 
 if __name__ == '__main__':
-    # Bạn có thể thêm code test ở đây
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    segment = RGBDFusion(fastsam_ckpt="FastSAM-s.pt", device=device)
-    print(f"RGBDFusion class đã sẵn sàng trên {device}")
+    fusion = RGBDFusion(fastsam_ckpt="FastSAM-s.pt", device=device)
+
+    print(f"[INFO] RGBDFusion initialized on {device}")
+
+    # ============================
+    # DEMO: Load test image + depth
+    # ============================
+    color = cv2.imread("test.jpg")    # ảnh RGB
+    depth = cv2.imread("test_depth.png", cv2.IMREAD_UNCHANGED)  # file depth
+    if color is None or depth is None:
+        print("[ERR] Thiếu test.jpg hoặc test_depth.png!")
+        quit()
+
+    # Depth scale (Realsense thường là 0.001)
+    depth_scale = 0.001
+
+    # Fake intrinsic (thay bằng intr của bạn)
+    class Intr:
+        fx = 600
+        fy = 600
+        ppx = color.shape[1] / 2
+        ppy = color.shape[0] / 2
+
+    intr = Intr()
+
+    # ============================
+    # BBOX đối tượng muốn segment
+    # ============================
+    bbox = [200, 150, 420, 400]  # [x1,y1,x2,y2]
+
+    # ============================
+    # 1. Lấy mask từ FastSAM
+    # ============================
+    mask = fusion.get_mask_from_bbox(color, bbox)
+
+    if mask is None:
+        print("[ERR] Không tìm thấy mask!")
+        quit()
+
+    # Hiển thị mask gốc
+    cv2.imshow("Mask (raw)", mask.astype(np.uint8) * 255)
+
+    # ============================
+    # 2. Tạo point cloud thô
+    # ============================
+    pc_raw = fusion.mask_to_pointcloud(mask, depth, color, intr, depth_scale)
+    if pc_raw is None:
+        print("[ERR] PC raw empty!")
+        quit()
+
+    print(f"[INFO] Raw point cloud size: {len(pc_raw.points)} points")
+
+    # ============================
+    # 3. Post-process (Downsampling + Denoise)
+    # ============================
+    pc_clean = fusion.post_process_pointcloud(
+        pc_raw,
+        voxel_size=0.005,
+        nb_neighbors=20,
+        std_ratio=2.0
+    )
+
+    print(f"[INFO] Cleaned point cloud size: {len(pc_clean.points)} points")
+
+    # ============================
+    # 4. Tạo mask đã lọc nhiễu (optional)
+    # ============================
+    # render mask đã lọc bằng cách mark lại những pixel xuất hiện trong pc_clean
+    mask_clean = np.zeros_like(mask, dtype=np.uint8)
+
+    pts = np.asarray(pc_clean.points)
+    colors = np.asarray(pc_clean.colors)
+
+    # Convert (X,Y,Z) → pixel coordinate (u,v)
+    u = (pts[:, 0] / pts[:, 2]) * intr.fx + intr.ppx
+    v = (pts[:, 1] / pts[:, 2]) * intr.fy + intr.ppy
+
+    u = u.astype(int)
+    v = v.astype(int)
+
+    # Ghi lại vào mask
+    for ui, vi in zip(u, v):
+        if 0 <= ui < mask_clean.shape[1] and 0 <= vi < mask_clean.shape[0]:
+            mask_clean[vi, ui] = 255
+
+    cv2.imshow("Mask After Denoise", mask_clean)
+
+    # ============================
+    # 5. Show point cloud
+    # ============================
+    o3d.visualization.draw_geometries([pc_clean])
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
