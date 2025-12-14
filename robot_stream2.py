@@ -1,62 +1,47 @@
-from old_mocap_module import UDPClient, MotionSuitReceiver
+import socket
 import json
 import time
 
-# Create UDPClient as buffer
-client = UDPClient(dev_mode=False)
+# Cấu hình phải khớp với Rokoko Studio
+UDP_IP = "192.168.56.1"
+UDP_PORT = 14043
+OUTPUT_FILE = "rokoko_motion_log_v3.json"
 
-import asyncio
-import websockets
-import json
-import threading
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # UDP
+sock.bind((UDP_IP, UDP_PORT))
 
-class WebSocketReceiver:
-    def __init__(self, ip="127.0.0.1", port=14053, api_key="1234", udp_client=None):
-        self.url = f"ws://{ip}:{port}"
-        self.api_key = api_key
-        self.udp_client = udp_client  # forward vào UDPClient queue
-        self.running = True
+print(f"Đang lắng nghe dữ liệu từ Rokoko tại {UDP_IP}:{UDP_PORT}...")
 
-    async def listen(self):
-        async with websockets.connect(
-            self.url,
-            extra_headers={"api-key": self.api_key},
-            max_size=2**24  # allow large JSON frames
-        ) as ws:
+motion_logs = []
 
-            print("Connected to Rokoko WebSocket JSON v3")
+try:
+    while True:
+        # Nhận dữ liệu (buffer size 65535 là đủ lớn cho 1 frame JSON)
+        data, addr = sock.recvfrom(65535)
 
-            while self.running:
-                try:
-                    msg = await ws.recv()
-                    if self.udp_client:
-                        with self.udp_client.lock:
-                            self.udp_client.queue.put(msg)
-                except Exception as e:
-                    print("WS error:", e)
-                    await asyncio.sleep(1)
+        # Decode dữ liệu từ bytes sang string rồi sang JSON object
+        json_str = data.decode('utf-8')
+        try:
+            json_data = json.loads(json_str)
 
-    def start(self):
-        thread = threading.Thread(target=lambda: asyncio.run(self.listen()), daemon=True)
-        thread.start()
+            # Thêm timestamp nếu cần để đồng bộ sau này
+            json_data['capture_timestamp'] = time.time()
 
+            # In thử ra màn hình để check
+            # print(json.dumps(json_data, indent=2)) 
 
-ws = WebSocketReceiver(
-    ip="127.0.0.1",
-    port=14053,
-    api_key="1234",
-    udp_client=client
-)
+            motion_logs.append(json_data)
+            print(f"Đã nhận frame: {len(motion_logs)}")
 
-ws.start()
+        except json.JSONDecodeError:
+            print("Lỗi decode JSON gói tin.")
 
-print("Listening for Rokoko JSON v3 frames...")
+except KeyboardInterrupt:
+    # Nhấn Ctrl+C để dừng và lưu file
+    print("\nĐang dừng và lưu file...")
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(motion_logs, f, indent=4)
+    print(f"Đã lưu {len(motion_logs)} frames vào file {OUTPUT_FILE}")
 
-while True:
-    data = client.update_cache()
-    if data:
-        frame = json.loads(data)
-        print("Received frame type:", frame.get("type"))
-
-    time.sleep(1/25)  # 25 FPS
-
+finally:
+    sock.close()

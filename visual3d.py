@@ -12,13 +12,15 @@ YOLO_MODEL = 'yolov8n.pt'
 FASTSAM_MODEL = 'fastsam-s.pt'
 BAG_FILE = "20251112_135756.bag"
 DETECT_CLASSES = ["cup", "laptop"]
+# DETECT_CLASSES = ['person']
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Đang sử dụng thiết bị: {DEVICE}")
 try:
     realsense_yolo = RealsenseYOLO(
         model_path=YOLO_MODEL,
         bag_path=BAG_FILE,
-        detect_classes=DETECT_CLASSES
+        detect_classes=DETECT_CLASSES,
+        device=DEVICE,
     )
     print("Khởi tạo RealsenseYOLO thành công.")
 

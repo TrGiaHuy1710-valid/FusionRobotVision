@@ -3,10 +3,18 @@ import numpy as np
 import cv2
 from ultralytics import YOLO
 
-
 class RealsenseYOLO:
-    def __init__(self, model_path, bag_path, detect_classes):
+    def __init__(self, model_path, bag_path, detect_classes, device="cpu"):
+        # Lưu device ("cuda" hoặc "cpu")
+        self.device = device
+
+        # Load YOLO và đưa lên đúng device
         self.model = YOLO(model_path)
+        try:
+            # Nếu dùng ultralytics mới, model.to(device) vẫn OK
+            self.model.to(self.device)
+        except Exception as e:
+            print(f"[WARN] Không thể chuyển model sang {self.device}: {e}")
 
         # Resolve class IDs
         self.class_ids = []
@@ -15,12 +23,11 @@ class RealsenseYOLO:
                 if name == t:
                     self.class_ids.append(cid)
 
-        # Init rs
+        # Init RealSense pipeline
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        rs.config.enable_device_from_file(self.config, bag_path)
 
-        # Enable both RGB and Depth
+        # Load từ file .bag, không lặp lại
         rs.config.enable_device_from_file(self.config, bag_path, repeat_playback=False)
 
         self.profile = self.pipeline.start(self.config)
@@ -48,7 +55,13 @@ class RealsenseYOLO:
         color_bgr = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
         depth = np.asanyarray(depth_frame.get_data())
 
-        results = self.model.predict(color_bgr, classes=self.class_ids, verbose=False)
+        # CHẠY YOLO TRÊN CUDA / CPU TUỲ self.device
+        results = self.model.predict(
+            color_bgr,
+            classes=self.class_ids,
+            verbose=False,
+            device=self.device,   # <- quan trọng
+        )
 
         dets = []
         for box in results[0].boxes:
@@ -67,4 +80,11 @@ if __name__ == '__main__':
     model_path = "yolov8n.pt"
     bag_path = "20251112_135756.bag"
     detect_classes = ['cup', 'laptop']
-    realsense = RealsenseYOLO(model_path=model_path, bag_path=bag_path, detect_classes=detect_classes)
+
+    # Ví dụ: test nhanh với CUDA
+    realsense = RealsenseYOLO(
+        model_path=model_path,
+        bag_path=bag_path,
+        detect_classes=detect_classes,
+        device="cuda"
+    )
